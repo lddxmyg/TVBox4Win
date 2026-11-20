@@ -13,7 +13,7 @@ source.exclude_patterns = *.spec, sync_core.py, README*.md
 version = 0.9.6.8
 
 # kivy 负责界面；requests 供 apiconfig/data_api 发 HTTP（openssl 由 p4a 自动带上）
-requirements = python3,kivy==2.3.0,requests,urllib3,certifi,charset-normalizer,idna,openssl
+requirements = python3,kivy==2.3.2,requests,urllib3,certifi,charset-normalizer,idna,openssl
 
 orientation = portrait
 fullscreen = 0
@@ -28,9 +28,9 @@ android.permissions = INTERNET, ACCESS_NETWORK_STATE
 android.accept_sdk_license = True
 android.release_artifact = apk
 p4a.bootstrap = sdl2
-# 2026-11: p4a master 默认 python 3.14，pyjnius 无对应 wheel；固定 3.11（有官方 android wheel）
-p4a.python_version = 3.11
+# 2026-11: p4a 固定到稳定 tag（master 漂移导致构建不可复现）
+p4a.branch = v2026.05.09
 
 [buildozer]
 log_level = 2
-warn_on_root = 1
+warn_on_root = 0
