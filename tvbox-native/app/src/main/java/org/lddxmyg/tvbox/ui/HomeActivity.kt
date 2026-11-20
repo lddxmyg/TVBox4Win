@@ -126,7 +126,7 @@ class HomeActivity : AppCompatActivity() {
             })
     }
 
-    /** 先探测 CMS 直连源，都不通就依次试 Jar 爬虫源 */
+    /** 先探测 CMS 直连源，都不通就依次试 Jar 爬虫源；全失败则落到第一个源（手动切换兜底） */
     private fun pickDefaultAny(): SourceBean? {
         CmsApi.pickDefaultSource()?.let { return it }
         for (b in ApiConfig.sourceBeanList) {
@@ -135,7 +135,7 @@ class HomeActivity : AppCompatActivity() {
                 if (SourceApi.getClasses(b).isNotEmpty()) return b
             } catch (_: Exception) {}
         }
-        return null
+        return ApiConfig.sourceBeanList.firstOrNull()
     }
 
     private fun switchSource(bean: SourceBean) {

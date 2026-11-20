@@ -190,6 +190,11 @@ object ApiConfig {
             if (b.name.isEmpty() || b.api.isEmpty()) continue
             b.api = resolveRef(currentUrl, b.api) ?: b.api
             if (b.jar.isNotEmpty()) b.jar = resolveRef(currentUrl, b.jar) ?: b.jar
+            // drpy 引擎要拿 ext 去拉规则文件，必须先解析成绝对地址
+            val extStr = b.ext as? String
+            if (!extStr.isNullOrEmpty()) {
+                b.ext = resolveRef(currentUrl, extStr) ?: extStr
+            }
             sourceBeanList.add(b)
         }
 
