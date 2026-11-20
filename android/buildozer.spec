@@ -28,6 +28,8 @@ android.permissions = INTERNET, ACCESS_NETWORK_STATE
 android.accept_sdk_license = True
 android.release_artifact = apk
 p4a.bootstrap = sdl2
+# 2026-11: p4a master 默认 python 3.14，pyjnius 无对应 wheel；固定 3.11（有官方 android wheel）
+p4a.python_version = 3.11
 
 [buildozer]
 log_level = 2
