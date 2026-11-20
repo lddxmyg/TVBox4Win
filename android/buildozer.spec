@@ -28,8 +28,8 @@ android.permissions = INTERNET, ACCESS_NETWORK_STATE
 android.accept_sdk_license = True
 android.release_artifact = apk
 p4a.bootstrap = sdl2
-# 2026-11: p4a 固定到稳定 tag（master 漂移导致构建不可复现）
-p4a.branch = v2026.05.09
+# 2026-11: 本机 github.com:443 不稳定，p4a 源码由归档预置，避免 buildozer 反复 clone
+p4a.source_dir = /root/p4a-src
 
 [buildozer]
 log_level = 2
