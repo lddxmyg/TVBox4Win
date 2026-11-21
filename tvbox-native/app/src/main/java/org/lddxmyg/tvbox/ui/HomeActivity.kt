@@ -60,6 +60,9 @@ class HomeActivity : AppCompatActivity() {
         findViewById<TextView>(R.id.btnSearch).setOnClickListener {
             startActivity(Intent(this, SearchActivity::class.java))
         }
+        findViewById<TextView>(R.id.btnHistory).setOnClickListener {
+            startActivity(Intent(this, HistoryActivity::class.java))
+        }
         findViewById<TextView>(R.id.btnConfig).setOnClickListener {
             startActivity(Intent(this, ConfigActivity::class.java))
         }

@@ -25,6 +25,11 @@ class DetailActivity : AppCompatActivity() {
     private var vodName = ""
     private var lineIndex = 0
     private var detail: DetailInfo? = null
+    // 从历史进入：指定线路/集数，加载完详情直接续播
+    private var resumeLine = -1
+    private var resumeEp = -1
+    private var autoPlay = false
+    private var autoPlayed = false
     // msearch 聚合后选中的真实播放源；普通源为 null（用 State.homeSource）
     private var playSource: SourceBean? = null
     private lateinit var bodyView: LinearLayout
@@ -34,6 +39,10 @@ class DetailActivity : AppCompatActivity() {
 
         vodId = intent.getStringExtra("vod_id") ?: ""
         vodName = intent.getStringExtra("vod_name") ?: ""
+        resumeLine = intent.getIntExtra("resume_line", -1)
+        resumeEp = intent.getIntExtra("resume_ep", -1)
+        autoPlay = intent.getBooleanExtra("auto_play", false)
+        lineIndex = resumeLine.coerceAtLeast(0)
         title = vodName
 
         val root = LinearLayout(this)
@@ -88,6 +97,7 @@ class DetailActivity : AppCompatActivity() {
                 body.removeAllViews()
                 renderInfo(body, d)
                 renderLines(bottom, d)
+                maybeAutoPlay()
             }
         }.start()
     }
@@ -257,26 +267,49 @@ class DetailActivity : AppCompatActivity() {
             p.setMargins(dp(3), dp(3), dp(3), dp(3))
             t.layoutParams = p
             t.setOnClickListener {
-                // 写入播放上下文：播放页据此渲染选集面板/自动下一集/换源
-                State.playDetail = d
-                State.playSource = playSource ?: State.homeSource
-                State.playVodId = vodId
-                State.playVodName = vodName.ifBlank { d.name }
-                State.playLineIndex = lineIndex
-                val it = Intent(this, PlayActivity::class.java)
-                it.putExtra("use_detail", true)
-                it.putExtra("ep_url", urls[i])
-                it.putExtra("ep_name", t.text)
-                it.putExtra("line_flag", d.seriesFlags.getOrNull(lineIndex)?.first ?: "")
-                it.putExtra("source_key", playSource?.key ?: "")
-                it.putExtra("vod_name", vodName.ifBlank { d.name })
-                startActivity(it)
+                playAt(lineIndex, i)
             }
             grid.addView(t)
         }
         val gs = android.widget.ScrollView(this)
         gs.addView(grid)
         bottom.addView(gs)
+    }
+
+    /** 从历史进入时，详情加载完直接续播上次那一集 */
+    private fun maybeAutoPlay() {
+        val d = detail ?: return
+        if (!autoPlay || autoPlayed) return
+        val line = lineIndex.coerceIn(0, (d.seriesFlags.size - 1).coerceAtLeast(0))
+        val urls = d.seriesUrls.getOrNull(line) ?: return
+        if (urls.isEmpty()) return
+        autoPlayed = true
+        playAt(line, if (resumeEp in urls.indices) resumeEp else 0)
+    }
+
+    /** 统一播放入口：写入播放上下文并带上线路/集数（此前集数固定从 0 开始） */
+    private fun playAt(line: Int, ep: Int) {
+        val d = detail ?: return
+        val urls = d.seriesUrls.getOrNull(line) ?: return
+        if (ep !in urls.indices) return
+        lineIndex = line
+        State.playDetail = d
+        State.playSource = playSource ?: State.homeSource
+        State.playVodId = vodId
+        State.playVodName = vodName.ifBlank { d.name }
+        State.playLineIndex = line
+        val epName = d.seriesFlags.getOrNull(line)?.second?.getOrNull(ep).orEmpty()
+            .ifBlank { "第${ep + 1}集" }
+        val it = Intent(this, PlayActivity::class.java)
+        it.putExtra("use_detail", true)
+        it.putExtra("ep_url", urls[ep])
+        it.putExtra("ep_name", epName)
+        it.putExtra("line_flag", d.seriesFlags.getOrNull(line)?.first ?: "")
+        it.putExtra("source_key", playSource?.key ?: "")
+        it.putExtra("vod_name", vodName.ifBlank { d.name })
+        it.putExtra("resume_line", line)
+        it.putExtra("resume_ep", ep)
+        startActivity(it)
     }
 
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()

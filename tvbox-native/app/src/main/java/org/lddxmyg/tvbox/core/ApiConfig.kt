@@ -65,10 +65,18 @@ object Prefs {
 
 /** 对应 apiconfig.ApiConfig：sources / parses / lives / flags / ads / hosts */
 object ApiConfig {
-    const val DEFAULT_API = "https://6800.kstore.vip/fish.json"
+    /** 默认：残月影视多仓（tvbox.txt 是多仓索引，含多条线路，自动选可用线路） */
+    const val DEFAULT_API = "https://gh-proxy.com/https://raw.githubusercontent.com/1771245847/TvBox/master/tvbox.txt"
+
+    /** 预设源（配置页一键切换） */
+    val PRESET_APIS: List<Pair<String, String>> = listOf(
+        "残月多仓（默认）" to DEFAULT_API,
+        "6800 fish 蜘蛛源" to "https://6800.kstore.vip/fish.json"
+    )
 
     /** 历史默认源/测试源：见到这些就自动迁到当前默认（用户手动设置的其它地址不动） */
     private val LEGACY_APIS = listOf(
+        "6800.kstore.vip/fish.json",
         "cyao2q.github.io/files/m.json",
         "cyao2q.github.io/files/jar",
         "127.0.0.1:8000",
@@ -86,6 +94,14 @@ object ApiConfig {
     var flags: List<String> = emptyList()
     var lastFromCache = false
     var currentUrl = ""
+
+    /** 多仓：repoList 为索引里的线路清单；repoPickIndex 为当前使用的线路下标；multiUrl 为多仓索引地址 */
+    class RepoEntry(val name: String, val url: String)
+
+    var repoList: List<RepoEntry> = emptyList()
+    var repoPickIndex = -1
+    var repoName = ""
+    var multiUrl = ""
 
     private val adHosts = HashSet<String>()
     private val hostsMap = HashMap<String, String>()
@@ -114,46 +130,117 @@ object ApiConfig {
                     }
                     if (!url.startsWith("http") && !File(url).exists()) url = "http://" + url
 
-                    var text: String? = null
-                    if (File(url).exists()) {
-                        text = try { File(url).readText() } catch (_: Exception) { null }
-                    } else {
-                        text = ConfigIo.fetchText(url, timeoutSec = 12, retries = 1)
-                    }
-                    val fromNet = !text.isNullOrEmpty()
-                    if (!text.isNullOrEmpty()) text = ConfigIo.decodeConfig(text, configKey)
-
-                    var fromCache = false
-                    val cacheFile = cacheFile(url)
-                    if ((text == null || ConfigIo.extractJson(text) == null)) {
-                        if (cacheFile.exists()) {
-                            val cached = try { cacheFile.readText() } catch (_: Exception) { null }
-                            if (!cached.isNullOrEmpty() && ConfigIo.extractJson(cached) != null) {
-                                text = cached
-                                fromCache = true
-                            }
-                        }
-                    }
-                    if (fromNet && !fromCache) {
-                        try { cacheFile.writeText(text ?: "") } catch (_: Exception) {}
-                    }
-                    val cfg = text?.let { ConfigIo.extractJson(it) }
-                    if (cfg == null) {
-                        errCb(if (fromNet || fromCache) "配置解析失败，且缓存也不可用"
+                    val r = resolveConfig(url, configKey, 0)
+                    if (r == null) {
+                        errCb(if (repoList.isNotEmpty()) "所有线路都拉取失败（共 ${repoList.size} 条），请检查网络或换接口"
                               else "配置拉取失败（网络不可达或地址无效），且没有可用缓存")
                         return@synchronized
                     }
-                    currentUrl = url
-                    parse(cfg)
+                    currentUrl = r.url
+                    parse(r.cfg)
+                    lastFromCache = r.fromCache
+                    // 多仓时 home_api 记用户输入的索引地址，保留线路切换能力
                     Prefs.addHistory("api_history", url)
                     Prefs.putString("home_api", url)
-                    lastFromCache = fromCache
                     okCb()
                 } catch (e: Exception) {
                     errCb("配置加载异常：${e.message}")
                 }
             }
         }.start()
+    }
+
+    private class Resolved(val cfg: JSONObject, val url: String, val fromCache: Boolean)
+
+    /**
+     * 解析配置：普通单仓直接返回；多仓（有 urls 无 sites）则按线路清单逐个试，
+     * 优先上次成功的那条，成功后把线路写进 Prefs，下次直接命中。
+     */
+    private fun resolveConfig(url: String, configKey: String?, depth: Int): Resolved? {
+        val (cfg, cached) = fetchCfg(url, configKey, withCache = true)
+        if (cfg == null) return null
+        val urlsArr = cfg.optJSONArray("urls")
+        val sitesArr = cfg.optJSONArray("sites")
+        val isMulti = urlsArr != null && urlsArr.length() > 0 &&
+                (sitesArr == null || sitesArr.length() == 0)
+        if (!isMulti || depth >= 2) {
+            if (!isMulti) {
+                repoList = emptyList(); repoPickIndex = -1; repoName = ""; multiUrl = ""
+            }
+            return Resolved(cfg, url, cached)
+        }
+
+        val entries = ArrayList<RepoEntry>()
+        for (i in 0 until urlsArr!!.length()) {
+            val o = urlsArr.optJSONObject(i) ?: continue
+            val su = o.optString("url", "").trim()
+            if (su.isEmpty()) continue
+            entries.add(RepoEntry(o.optString("name", "线路${entries.size + 1}"), su))
+        }
+        repoList = entries
+        multiUrl = url
+        saveRepoList(url, entries)
+        if (entries.isEmpty()) return Resolved(cfg, url, cached)
+
+        val remembered = Prefs.getString(repoPickKey(url), "").toIntOrNull() ?: -1
+        val order = LinkedHashSet<Int>()
+        if (remembered in entries.indices) order.add(remembered)
+        entries.indices.forEach { order.add(it) }
+
+        for (i in order) {
+            val sub = resolveRef(url, entries[i].url) ?: entries[i].url
+            val (subCfg, subCached) = fetchCfg(sub, null, withCache = true)
+            val n = subCfg?.optJSONArray("sites")?.length() ?: 0
+            if (subCfg != null && n > 0) {
+                repoPickIndex = i
+                repoName = entries[i].name
+                Prefs.putString(repoPickKey(url), i.toString())
+                return Resolved(subCfg, sub, subCached)
+            }
+        }
+        // 线路全挂：若索引自身带 sites 就用它，否则让上层报错（缓存也会在这里兜过一遍）
+        return if ((sitesArr?.length() ?: 0) > 0) Resolved(cfg, url, cached) else null
+    }
+
+    /** 拉取一条配置并解析；网络失败回落该地址的本地缓存 */
+    private fun fetchCfg(url: String, configKey: String?, withCache: Boolean): Pair<JSONObject?, Boolean> {
+        var text: String? = null
+        if (File(url).exists()) {
+            text = try { File(url).readText() } catch (_: Exception) { null }
+        } else {
+            text = ConfigIo.fetchText(url, timeoutSec = 12, retries = 1)
+        }
+        val fromNet = !text.isNullOrEmpty()
+        if (!text.isNullOrEmpty()) text = ConfigIo.decodeConfig(text, configKey)
+        var cached = false
+        if (ConfigIo.extractJson(text) == null && withCache) {
+            val cf = cacheFile(url)
+            if (cf.exists()) {
+                val t = try { cf.readText() } catch (_: Exception) { null }
+                if (ConfigIo.extractJson(t) != null) { text = t; cached = true }
+            }
+        }
+        if (fromNet && !cached) {
+            try { cacheFile(url).writeText(text ?: "") } catch (_: Exception) {}
+        }
+        return ConfigIo.extractJson(text) to cached
+    }
+
+    private fun repoPickKey(url: String) = "repo_pick_" + Integer.toHexString(url.hashCode())
+
+    private fun saveRepoList(url: String, entries: List<RepoEntry>) {
+        try {
+            val arr = JSONArray()
+            entries.forEach { e -> arr.put(JSONObject().put("name", e.name).put("url", e.url)) }
+            Prefs.putString("repo_list", arr.toString())
+            Prefs.putString("repo_list_url", url)
+        } catch (_: Exception) {}
+    }
+
+    /** 配置页切线路：写入选择后由调用方重新 load */
+    fun pickRepo(index: Int) {
+        if (index !in repoList.indices) return
+        Prefs.putString(repoPickKey(multiUrl), index.toString())
     }
 
     /**
