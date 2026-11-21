@@ -17,6 +17,7 @@ class SourceBean {
     var timeout = 0
     var click = ""
     var style = ""
+    var indexs = 0   // 1 = 带首页推荐位（选默认源时优先）
     var jar = ""   // 站点级 spider jar（空 = 用全局）
 
     val isType012: Boolean get() = type in 0..2
@@ -39,6 +40,7 @@ class SourceBean {
             b.timeout = d.optInt("timeout", 0)
             b.click = d.optString("click", "")
             b.style = d.optString("style", "")
+            b.indexs = d.optInt("indexs", 0)
             b.jar = d.optString("jar", "")
             if (b.key.startsWith("py_")) b.filterable = 1
             return b

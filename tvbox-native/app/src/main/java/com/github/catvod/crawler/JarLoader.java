@@ -83,6 +83,11 @@ public class JarLoader {
         if (Thread.interrupted()) return false;
         if (!exists(file)) return false;
         if (loaders.containsKey(key)) return true;
+        if (!isZip(file)) {
+            deleteQuietly(file);
+            Log.i(TAG, "jar corrupted(not zip), removed: " + file.getAbsolutePath());
+            return false;
+        }
         try {
             file.setReadOnly();
             String cachePath = jarDir().getAbsolutePath();
@@ -171,13 +176,16 @@ public class JarLoader {
             } else if (TextUtils.isEmpty(md5) && exists(file) && !FileUtils.isWeekAgo(file)) {
                 load(key, file);
             } else if (source.startsWith("http")) {
-                load(key, download(source, file));
+                File f = download(source, file);
+                if (f != null) load(key, f);
+                else Log.i(TAG, "download incomplete, skip load: " + source);
             } else if (source.startsWith("assets")) {
                 load(key, copyAsset(source, file));
             } else if (source.startsWith("file")) {
                 load(key, local(source));
             } else if (source.startsWith("clan://")) {
-                load(key, download(clanToAddress(source), file));
+                File f = download(clanToAddress(source), file);
+                if (f != null) load(key, f);
             }
         }
     }
@@ -313,28 +321,85 @@ public class JarLoader {
         throw new ClassNotFoundException(name);
     }
 
+    /**
+     * 下载 jar 到临时文件，校验是完整 zip 后才改名成正式文件。
+     * 并发探测搜索时会中断线程（pool.shutdownNow），旧写法直接返回半截文件，
+     * 半截 jar 会被当成有效缓存加载，表现就是 "is not zip" + 所有类 ClassNotFound。
+     */
     private File download(String url, File file) {
         InputStream is = null;
         FileOutputStream os = null;
+        File tmp = new File(file.getAbsolutePath() + ".tmp");
         try {
             Response response = OkHttpHelper.download(url);
-            if (response.body() == null) return file;
+            if (response.body() == null) return null;
             is = response.body().byteStream();
-            os = new FileOutputStream(create(file));
+            os = new FileOutputStream(create(tmp));
             byte[] buffer = new byte[16384];
             int length;
             while ((length = is.read(buffer)) != -1) {
-                if (Thread.interrupted()) return file;
+                if (Thread.currentThread().isInterrupted()) {
+                    close(is);
+                    close(os);
+                    deleteQuietly(tmp);
+                    Log.i(TAG, "download interrupted: " + url);
+                    return null;
+                }
                 os.write(buffer, 0, length);
             }
             os.flush();
+            close(os);
+            os = null;
+            if (!isZip(tmp)) {
+                deleteQuietly(tmp);
+                Log.i(TAG, "downloaded file is not a valid zip: " + url);
+                return null;
+            }
+            if (file.exists()) file.delete();
+            if (!tmp.renameTo(file)) {
+                deleteQuietly(tmp);
+                return null;
+            }
+            return file;
         } catch (Throwable e) {
             e.printStackTrace();
+            deleteQuietly(tmp);
+            return null;
         } finally {
             close(is);
             close(os);
         }
-        return file;
+    }
+
+    /** 末尾 64KB 内找 EOCD 签名：zip 完整性最低门槛（防半截文件） */
+    private boolean isZip(File file) {
+        if (!exists(file) || file.length() < 22) return false;
+        java.io.RandomAccessFile raf = null;
+        try {
+            raf = new java.io.RandomAccessFile(file, "r");
+            long len = raf.length();
+            int tail = (int) Math.min(len, 65557);
+            byte[] buf = new byte[tail];
+            raf.seek(len - tail);
+            raf.readFully(buf);
+            for (int i = tail - 22; i >= 0; i--) {
+                if (buf[i] == 'P' && buf[i + 1] == 'K' && buf[i + 2] == 5 && buf[i + 3] == 6) {
+                    return true;
+                }
+            }
+            return false;
+        } catch (Throwable e) {
+            return false;
+        } finally {
+            close(raf);
+        }
+    }
+
+    private void deleteQuietly(File file) {
+        try {
+            if (file != null && file.exists()) file.delete();
+        } catch (Throwable ignored) {
+        }
     }
 
     private File copyAsset(String url, File file) {

@@ -16,6 +16,7 @@ import org.lddxmyg.tvbox.R
 import org.lddxmyg.tvbox.core.ApiConfig
 import org.lddxmyg.tvbox.core.CmsApi
 import org.lddxmyg.tvbox.core.PicLoader
+import org.lddxmyg.tvbox.core.Prefs
 import org.lddxmyg.tvbox.core.SourceApi
 import org.lddxmyg.tvbox.core.SourceBean
 import org.lddxmyg.tvbox.core.State
@@ -127,16 +128,48 @@ class HomeActivity : AppCompatActivity() {
             })
     }
 
-    /** 先探测 CMS 直连源，都不通就依次试 Jar 爬虫源；全失败则落到第一个源（手动切换兜底） */
+    /**
+     * 选默认源。
+     * 111 个源全是 Jar 源时串行探测会卡几分钟，这里：
+     * ① 上次成功用过的源优先（命中就秒开）；② 否则并发探测前几个（优先带首页推荐位的）；
+     * ③ 总时间盒 25 秒；④ 全失败落到第一个源（用户可手动切换，不会白屏）。
+     */
     private fun pickDefaultAny(): SourceBean? {
         CmsApi.pickDefaultSource()?.let { return it }
-        for (b in ApiConfig.sourceBeanList) {
-            if (!b.isSpider) continue
-            try {
-                if (SourceApi.getClasses(b).isNotEmpty()) return b
-            } catch (_: Exception) {}
+
+        val lastKey = Prefs.getString("last_good_source", "")
+        if (lastKey.isNotEmpty()) {
+            ApiConfig.get(lastKey)?.let { b ->
+                if (runCatching { SourceApi.getClasses(b).isNotEmpty() }.getOrDefault(false)) return b
+            }
         }
-        return ApiConfig.sourceBeanList.firstOrNull()
+
+        val all = ApiConfig.sourceBeanList
+        if (all.isEmpty()) return null
+        val ranked = all.filter { it.isSpider && it.indexs == 1 } + all.filter { !(it.isSpider && it.indexs == 1) }
+        val probe = ranked.take(6)
+
+        val picked = java.util.concurrent.atomic.AtomicReference<SourceBean?>(null)
+        val done = java.util.concurrent.CountDownLatch(probe.size)
+        // 守护线程池：超时后不中断（否则会把正在下载的 jar 打断）
+        val pool = java.util.concurrent.Executors.newFixedThreadPool(minOf(probe.size, 4)) { r ->
+            Thread(r, "pick-source").apply { isDaemon = true }
+        }
+        for (b in probe) {
+            pool.execute {
+                try {
+                    if (picked.get() == null && SourceApi.getClasses(b).isNotEmpty()) {
+                        picked.compareAndSet(null, b)
+                    }
+                } catch (_: Throwable) {
+                } finally {
+                    done.countDown()
+                }
+            }
+        }
+        try { done.await(25, java.util.concurrent.TimeUnit.SECONDS) } catch (_: Throwable) {}
+        pool.shutdown()
+        return picked.get() ?: probe.firstOrNull() ?: all.firstOrNull()
     }
 
     private fun switchSource(bean: SourceBean) {
@@ -152,6 +185,7 @@ class HomeActivity : AppCompatActivity() {
         setLoading(true)
         Thread {
             val cats = try { SourceApi.getClasses(bean) } catch (_: Exception) { emptyList() }
+            if (cats.isNotEmpty()) Prefs.putString("last_good_source", bean.key)
             runOnUiThread {
                 setLoading(false)
                 categories = listOf("<首页>" to "") + cats
@@ -208,7 +242,7 @@ class HomeActivity : AppCompatActivity() {
                 pageCount = pc
                 if (append) adapter.append(vods) else adapter.replaceAll(vods)
                 if (adapter.itemCount == 0) {
-                    emptyView.text = "暂无数据"
+                    emptyView.text = "「${bean.name}」暂无内容\n点左上角源名可切换其他源（共 ${ApiConfig.sourceBeanList.size} 个）"
                     emptyView.visibility = View.VISIBLE
                 } else {
                     emptyView.visibility = View.GONE

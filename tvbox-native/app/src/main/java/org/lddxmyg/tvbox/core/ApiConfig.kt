@@ -65,7 +65,18 @@ object Prefs {
 
 /** 对应 apiconfig.ApiConfig：sources / parses / lives / flags / ads / hosts */
 object ApiConfig {
-    const val DEFAULT_API = "https://cyao2q.github.io/files/m.json"
+    const val DEFAULT_API = "https://6800.kstore.vip/fish.json"
+
+    /** 历史默认源/测试源：见到这些就自动迁到当前默认（用户手动设置的其它地址不动） */
+    private val LEGACY_APIS = listOf(
+        "cyao2q.github.io/files/m.json",
+        "cyao2q.github.io/files/jar",
+        "127.0.0.1:8000",
+        "localhost:8000"
+    )
+
+    fun isLegacyApi(url: String): Boolean =
+        url.isBlank() || LEGACY_APIS.any { url.contains(it) }
 
     val sourceBeanList = ArrayList<SourceBean>()
     val parseBeanList = ArrayList<ParseBean>()
@@ -113,7 +124,7 @@ object ApiConfig {
                     if (!text.isNullOrEmpty()) text = ConfigIo.decodeConfig(text, configKey)
 
                     var fromCache = false
-                    val cacheFile = cacheFile()
+                    val cacheFile = cacheFile(url)
                     if ((text == null || ConfigIo.extractJson(text) == null)) {
                         if (cacheFile.exists()) {
                             val cached = try { cacheFile.readText() } catch (_: Exception) { null }
@@ -145,7 +156,12 @@ object ApiConfig {
         }.start()
     }
 
-    private fun cacheFile(): File = File(PrefsRunDir.dir, "tvbox.json")
+    /**
+     * 缓存按配置地址分开存：否则换源后新地址拉取失败会回落成旧源的缓存，
+     * 表现就是"换了源还是老样子"。
+     */
+    private fun cacheFile(url: String = currentUrl): File =
+        File(PrefsRunDir.dir, "tvbox_" + Integer.toHexString(url.hashCode()) + ".json")
 
     fun resolveRef(baseUrl: String, ref: String?): String? {
         if (ref == null) return null
