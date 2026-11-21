@@ -74,9 +74,10 @@ object ApiConfig {
         "6800 fish 蜘蛛源" to "https://6800.kstore.vip/fish.json"
     )
 
-    /** 历史默认源/测试源：见到这些就自动迁到当前默认（用户手动设置的其它地址不动） */
+    /** 历史默认源/测试源：见到这些就自动迁到当前默认（用户手动设置的其它地址不动）。
+     *  注意 fish.json 不在迁移名单里：v1.11 曾强制把 fish.json 迁到多仓，导致老用户
+     *  好用的爬虫源被换掉、播放全挂。升级绝不能动用户在用的源。 */
     private val LEGACY_APIS = listOf(
-        "6800.kstore.vip/fish.json",
         "cyao2q.github.io/files/m.json",
         "cyao2q.github.io/files/jar",
         "127.0.0.1:8000",
