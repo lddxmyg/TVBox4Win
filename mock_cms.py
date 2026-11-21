@@ -28,7 +28,8 @@ VIDEOS = {
         "name": "今天是太阳雨",
         "pic": "http://127.0.0.1:8000/pic1.png@Referer=http://127.0.0.1:8000/@User-Agent=MozillaTestUA",
         "note": "全集",
-        "dd": [("线路A", "第01集$http://127.0.0.1:8000/video.mp4#第02集$http://127.0.0.1:8000/video.mp4")],
+        # 第01集=直链；第02集=JS 动态注入播放页（地址不在静态 HTML 里，正则嗅探抓不到，只能 WebView 拦截）
+        "dd": [("线路A", "第01集$http://127.0.0.1:8000/real.mp4#第02集$http://127.0.0.1:8000/play.html?vid=9")],
     },
     "2": {
         "name": "两京十五日",
@@ -37,6 +38,16 @@ VIDEOS = {
         "dd": [],
     },
 }
+
+PLAY_HTML = """<!DOCTYPE html><html><head><meta charset="utf-8"><title>player</title></head><body>
+<script>
+// 地址运行时拼接，静态正则嗅探不可见
+var ext = String.fromCharCode(46) + 'mp' + String.fromCharCode(52);
+var u = '/re' + 'al' + ext;
+setTimeout(function(){ location.href = u; }, 100);
+</script>
+<div>loading player...</div>
+</body></html>"""
 
 # 多源并发搜索测试：另外两个 JSON(type=1) CMS 源，同名不同线路；其中一个故意慢 4 秒
 JSON_SOURCES = {
@@ -112,6 +123,11 @@ class H(BaseHTTPRequestHandler):
                 body = list_xml(list(VIDEOS.keys()))
         elif path in PICS:
             body = PICS[path]
+        elif path == "/play.html":
+            body = PLAY_HTML.encode("utf-8")
+        elif path == "/real.mp4":
+            with open(os.path.join(ROOT, "real.mp4"), "rb") as f:
+                body = f.read()
         elif path == "/video.mp4":
             body = b"\x00" * 64
         else:

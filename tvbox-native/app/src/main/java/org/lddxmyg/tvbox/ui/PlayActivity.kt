@@ -15,15 +15,18 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
 import org.lddxmyg.tvbox.R
 import org.lddxmyg.tvbox.core.ApiConfig
+import org.lddxmyg.tvbox.core.CmsApi
 import org.lddxmyg.tvbox.core.PlayResult
 import org.lddxmyg.tvbox.core.SourceApi
 import org.lddxmyg.tvbox.core.State
+import org.lddxmyg.tvbox.core.WebSniffer
 
 class PlayActivity : AppCompatActivity() {
 
     private var player: ExoPlayer? = null
     private lateinit var playerView: PlayerView
     private lateinit var statusView: TextView
+    private var currentUrl = ""
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -36,7 +39,7 @@ class PlayActivity : AppCompatActivity() {
         statusView = TextView(this)
         statusView.text = "解析播放地址…"
         statusView.setTextColor(resources.getColor(R.color.textSecondary, theme))
-        statusView.textSize = 16f
+        statusView.textSize = 15f
         val lp = FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT,
             FrameLayout.LayoutParams.WRAP_CONTENT)
         lp.gravity = android.view.Gravity.CENTER
@@ -58,14 +61,27 @@ class PlayActivity : AppCompatActivity() {
             } catch (e: Exception) {
                 PlayResult(epUrl, null)
             }
-            runOnUiThread {
-                if (result.url.isBlank()) {
-                    statusView.text = "播放地址为空"
-                    return@runOnUiThread
+            // OkHttp 快路径没拿到媒体直链 → WebView 深度嗅探（JS 注入/跳转页）
+            if (result.url.startsWith("http") && !CmsApi.isVideoFormat(result.url)) {
+                runOnUiThread {
+                    statusView.text = "页面为动态播放页，正在深度嗅探…"
+                    WebSniffer.sniff(this, result.url) { found ->
+                        if (found != null) {
+                            startPlay(PlayResult(found, result.headers))
+                        } else {
+                            showError(result.url)
+                        }
+                    }
                 }
-                startPlay(result)
+                return@Thread
             }
+            runOnUiThread { startPlay(result) }
         }.start()
+    }
+
+    private fun showError(url: String) {
+        statusView.text = "无法解析播放地址\n该页面可能已失效或被站点拦截\n地址：${url.take(120)}"
+        statusView.visibility = View.VISIBLE
     }
 
     private fun startPlay(result: PlayResult) {
@@ -81,6 +97,7 @@ class PlayActivity : AppCompatActivity() {
             .build()
         player = p
         playerView.player = p
+        currentUrl = result.url
         val item = MediaItem.Builder()
             .setUri(result.url)
             .setMediaMetadata(MediaMetadata.Builder().setTitle(intent.getStringExtra("ep_name") ?: "").build())
@@ -88,7 +105,10 @@ class PlayActivity : AppCompatActivity() {
         p.setMediaItem(item)
         p.addListener(object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
-                statusView.text = "播放失败：${error.errorCodeName}\n源地址可能不支持或已失效"
+                val cause = error.cause?.message?.take(140) ?: ""
+                statusView.text = "播放失败：${error.errorCodeName}\n" +
+                    (if (cause.isNotEmpty()) "$cause\n" else "") +
+                    "地址：${currentUrl.take(120)}"
                 statusView.visibility = View.VISIBLE
             }
             override fun onIsPlayingChanged(isPlaying: Boolean) {
