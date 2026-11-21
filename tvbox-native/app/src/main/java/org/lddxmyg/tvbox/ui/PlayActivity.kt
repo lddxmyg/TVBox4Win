@@ -14,6 +14,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
 import org.lddxmyg.tvbox.R
+import org.lddxmyg.tvbox.core.ApiConfig
 import org.lddxmyg.tvbox.core.PlayResult
 import org.lddxmyg.tvbox.core.SourceApi
 import org.lddxmyg.tvbox.core.State
@@ -46,7 +47,9 @@ class PlayActivity : AppCompatActivity() {
 
         val epUrl = intent.getStringExtra("ep_url") ?: ""
         val lineFlag = intent.getStringExtra("line_flag") ?: ""
-        val bean = State.homeSource
+        // msearch 聚合详情时，播放要走用户选中的源（source_key），而非首页源
+        val bean = intent.getStringExtra("source_key")?.takeIf { it.isNotEmpty() }
+            ?.let { ApiConfig.get(it) } ?: State.homeSource
 
         Thread {
             val result: PlayResult = try {

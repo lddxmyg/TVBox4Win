@@ -15,6 +15,7 @@ import com.bumptech.glide.Glide
 import org.lddxmyg.tvbox.R
 import org.lddxmyg.tvbox.core.ApiConfig
 import org.lddxmyg.tvbox.core.CmsApi
+import org.lddxmyg.tvbox.core.PicLoader
 import org.lddxmyg.tvbox.core.SourceApi
 import org.lddxmyg.tvbox.core.SourceBean
 import org.lddxmyg.tvbox.core.State
@@ -233,8 +234,7 @@ class HomeActivity : AppCompatActivity() {
             val v = items[pos]
             h.name.text = v.name
             h.remark.text = v.remark
-            Glide.with(h.img).load(v.pic).centerCrop()
-                .placeholder(R.color.surface).into(h.img)
+            PicLoader.load(h.img, v.pic)
             h.itemView.setOnClickListener { onClick(v) }
         }
         inner class Holder(v: View) : RecyclerView.ViewHolder(v) {

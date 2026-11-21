@@ -12,6 +12,7 @@ import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.bumptech.glide.Glide
 import org.lddxmyg.tvbox.R
+import org.lddxmyg.tvbox.core.PicLoader
 import org.lddxmyg.tvbox.core.SourceApi
 import org.lddxmyg.tvbox.core.State
 import org.lddxmyg.tvbox.core.Vod
@@ -66,7 +67,7 @@ class SearchActivity : AppCompatActivity() {
                 val v = results[pos]
                 val v0 = h.itemView
                 val img = v0.findViewById<android.widget.ImageView>(R.id.imgPoster)
-                Glide.with(img).load(v.pic).centerCrop().placeholder(R.color.surface).into(img)
+                PicLoader.load(img, v.pic)
                 v0.findViewById<TextView>(R.id.txtName).text = v.name
                 v0.findViewById<TextView>(R.id.txtRemark).text = v.remark
                 v0.setOnClickListener {

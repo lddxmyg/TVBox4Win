@@ -42,7 +42,8 @@ object CmsApi {
         if (text.isNullOrBlank()) return null
         return try {
             val db = javax.xml.parsers.DocumentBuilderFactory.newInstance()
-            db.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
+            // Android(Harmony) 的 setFeature 不支持任意 feature 会抛异常，必须吞掉，否则整个 XML 解析全挂
+            try { db.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true) } catch (_: Throwable) {}
             val doc = db.newDocumentBuilder().parse(
                 org.xml.sax.InputSource(StringReader(text.trim())))
             doc.documentElement

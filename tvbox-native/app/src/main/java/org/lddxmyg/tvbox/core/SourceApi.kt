@@ -89,6 +89,37 @@ object SourceApi {
         return vodsOf(j)
     }
 
+    /**
+     * 全源聚合搜索（复刻原版 msearch: 链路）：
+     * Douban/DouDou 这类"仅推荐"源的 vod_id 是 msearch: 前缀、无 detailContent，
+     * 详情页须拿片名到全部可搜索的源里聚合出真实条目。
+     * 返回（源, 条目）对；片名完全相等的排前面。
+     */
+    fun searchAllSources(wd: String, skipKey: String = ""): List<Pair<SourceBean, Vod>> {
+        val out = ArrayList<Pair<SourceBean, Vod>>()
+        val sources = ApiConfig.sourceBeanList.filter { it.key != skipKey && it.searchable == 1 }
+        if (sources.isEmpty()) return out
+        val pool = java.util.concurrent.Executors.newFixedThreadPool(minOf(sources.size, 6))
+        val futures = sources.map { b -> pool.submit(java.util.concurrent.Callable {
+            val list = try { searchVods(b, wd) } catch (_: Throwable) { emptyList<Vod>() }
+            list.filter { matchName(it.name, wd) }.map { b to it }
+        }) }
+        for (f in futures) {
+            try { out.addAll(f.get(30, java.util.concurrent.TimeUnit.SECONDS)) } catch (_: Throwable) {}
+        }
+        pool.shutdownNow()
+        val exact = out.filter { it.second.name.replace(" ", "").equals(wd.replace(" ", ""), true) }
+        val fuzzy = out.filter { it !in exact }
+        return exact + fuzzy
+    }
+
+    private fun matchName(name: String, wd: String): Boolean {
+        val n = name.replace(" ", "").lowercase()
+        val w = wd.replace(" ", "").lowercase()
+        if (w.isEmpty() || n.isEmpty()) return false
+        return n == w || n.contains(w) || w.contains(n)
+    }
+
     fun getDetail(bean: SourceBean, vodId: String): DetailInfo {
         if (bean.isType012) return CmsApi.getDetail(bean, vodId)
         val sp = spiderFor(bean) ?: return DetailInfo()

@@ -8,27 +8,32 @@ import android.widget.GridLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
-import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
-import com.bumptech.glide.Glide
 import org.lddxmyg.tvbox.R
+import org.lddxmyg.tvbox.core.ApiConfig
 import org.lddxmyg.tvbox.core.CmsApi
 import org.lddxmyg.tvbox.core.DetailInfo
+import org.lddxmyg.tvbox.core.PicLoader
 import org.lddxmyg.tvbox.core.SourceApi
+import org.lddxmyg.tvbox.core.SourceBean
 import org.lddxmyg.tvbox.core.State
+import org.lddxmyg.tvbox.core.Vod
 
 class DetailActivity : AppCompatActivity() {
 
     private var vodId = ""
+    private var vodName = ""
     private var lineIndex = 0
     private var detail: DetailInfo? = null
+    // msearch 聚合后选中的真实播放源；普通源为 null（用 State.homeSource）
+    private var playSource: SourceBean? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         vodId = intent.getStringExtra("vod_id") ?: ""
-        val name = intent.getStringExtra("vod_name") ?: ""
-        title = name
+        vodName = intent.getStringExtra("vod_name") ?: ""
+        title = vodName
 
         val root = LinearLayout(this)
         root.orientation = LinearLayout.VERTICAL
@@ -51,13 +56,26 @@ class DetailActivity : AppCompatActivity() {
         root.addView(bottom, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, 0, 0.6f))
 
-        val progress = View(this)
-        progress.setBackgroundColor(0)
-        setLoadingView(body)
+        if (vodId.startsWith("msearch:")) {
+            // 复刻原版：仅推荐源（豆瓣类）走全源聚合搜索，先选真实播放源
+            renderAggregateSearch(body, bottom)
+        } else {
+            setLoadingView(body)
+            loadDetail(State.homeSource, vodId, body, bottom)
+        }
+    }
 
+    /** 常规详情加载：bean 为 null 时用 homeSource */
+    private fun loadDetail(bean: SourceBean?, id: String, body: LinearLayout, bottom: LinearLayout) {
+        if (bean == null) {
+            body.removeAllViews()
+            body.addView(hintText("当前没有可用源"))
+            return
+        }
+        playSource = bean
+        val src = bean
         Thread {
-            val bean = State.homeSource!!
-            val d = try { SourceApi.getDetail(bean, vodId) } catch (e: Exception) { DetailInfo() }
+            val d = try { SourceApi.getDetail(src, id) } catch (e: Exception) { DetailInfo() }
             detail = d
             runOnUiThread {
                 body.removeAllViews()
@@ -67,13 +85,66 @@ class DetailActivity : AppCompatActivity() {
         }.start()
     }
 
-    private fun setLoadingView(body: LinearLayout) {
+    /** msearch: 前缀 → 全源聚合搜索出真实条目，用户点选后加载对应源详情 */
+    private fun renderAggregateSearch(body: LinearLayout, bottom: LinearLayout) {
+        body.removeAllViews()
+        bottom.removeAllViews()
+        val loading = hintText("正在全源聚合搜索「$vodName」…")
+        body.addView(loading)
+        Thread {
+            val candidates = try { SourceApi.searchAllSources(vodName) } catch (_: Throwable) { emptyList() }
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                body.removeAllViews()
+                bottom.removeAllViews()
+                if (candidates.isEmpty()) {
+                    body.addView(hintText("没有聚合到可播放源\n试试切换其他源或更换接口"))
+                    return@runOnUiThread
+                }
+                body.addView(hintText("聚合到 ${candidates.size} 个播放源，点选观看："))
+                candidates.take(30).forEach { (bean, vod) ->
+                    val row = LinearLayout(this)
+                    row.orientation = LinearLayout.HORIZONTAL
+                    row.setPadding(dp(8), dp(12), dp(8), dp(12))
+                    row.setBackgroundResource(R.color.surface)
+                    val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(6) }
+                    val name = TextView(this)
+                    name.text = "${bean.name}"
+                    name.setTextColor(resources.getColor(R.color.accent, theme))
+                    name.textSize = 13f
+                    name.setPadding(dp(10), 0, dp(10), 0)
+                    name.gravity = Gravity.CENTER_VERTICAL
+                    row.addView(name, LinearLayout.LayoutParams(0,
+                        LinearLayout.LayoutParams.MATCH_PARENT, 0.38f))
+                    val vodNameTv = TextView(this)
+                    vodNameTv.text = vod.name + (if (vod.remark.isNotBlank()) " · ${vod.remark}" else "")
+                    vodNameTv.setTextColor(resources.getColor(R.color.textPrimary, theme))
+                    vodNameTv.textSize = 14f
+                    row.addView(vodNameTv, LinearLayout.LayoutParams(0,
+                        LinearLayout.LayoutParams.MATCH_PARENT, 0.62f))
+                    row.setOnClickListener {
+                        loading.visibility = View.VISIBLE
+                        loading.text = "正在加载「${vod.name}」详情…"
+                        loadDetail(bean, vod.id, body, bottom)
+                    }
+                    body.addView(row, lp)
+                }
+            }
+        }.start()
+    }
+
+    private fun hintText(text: String): TextView {
         val tv = TextView(this)
-        tv.text = "加载中…"
+        tv.text = text
         tv.setTextColor(resources.getColor(R.color.textSecondary, theme))
-        tv.gravity = Gravity.CENTER
-        tv.setPadding(0, 80, 0, 80)
-        body.addView(tv)
+        tv.textSize = 14f
+        tv.setPadding(0, dp(24), 0, dp(24))
+        return tv
+    }
+
+    private fun setLoadingView(body: LinearLayout) {
+        body.addView(hintText("加载中…"))
     }
 
     private fun renderInfo(body: LinearLayout, d: DetailInfo) {
@@ -82,7 +153,7 @@ class DetailActivity : AppCompatActivity() {
         val img = ImageView(this)
         img.setBackgroundColor(resources.getColor(R.color.surface, theme))
         img.layoutParams = LinearLayout.LayoutParams(dp(110), dp(150)).apply { rightMargin = dp(14) }
-        Glide.with(img).load(d.pic).centerCrop().placeholder(R.color.surface).into(img)
+        PicLoader.load(img, d.pic)
         row.addView(img)
 
         val col = LinearLayout(this)
@@ -165,6 +236,7 @@ class DetailActivity : AppCompatActivity() {
                 it.putExtra("ep_url", urls[i])
                 it.putExtra("ep_name", t.text)
                 it.putExtra("line_flag", d.seriesFlags.getOrNull(lineIndex)?.first ?: "")
+                it.putExtra("source_key", playSource?.key ?: "")
                 startActivity(it)
             }
             grid.addView(t)
