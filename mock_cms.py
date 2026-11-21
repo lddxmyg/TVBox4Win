@@ -29,7 +29,8 @@ VIDEOS = {
         "pic": "http://127.0.0.1:8000/pic1.png@Referer=http://127.0.0.1:8000/@User-Agent=MozillaTestUA",
         "note": "全集",
         # 第01集=直链；第02集=JS 动态注入播放页（地址不在静态 HTML 里，正则嗅探抓不到，只能 WebView 拦截）
-        "dd": [("线路A", "第01集$http://127.0.0.1:8000/real.mp4#第02集$http://127.0.0.1:8000/play.html?vid=9")],
+        "dd": [("线路A", "第01集$http://127.0.0.1:8000/real.mp4#第02集$http://127.0.0.1:8000/play.html?vid=9"),
+               ("线路B", "第01集$http://127.0.0.1:8000/real.mp4#第02集$http://127.0.0.1:8000/real.mp4")],
     },
     "2": {
         "name": "两京十五日",
@@ -68,7 +69,7 @@ def json_list(src):
             "vod_year": "2026", "vod_director": "JSON导演", "vod_actor": "JSON演员",
             "vod_content": "JSON 源简介",
             "vod_play_from": src["flag"],
-            "vod_play_url": "第01集$http://127.0.0.1:8000/video.mp4",
+            "vod_play_url": "第01集$http://127.0.0.1:8000/real.mp4",
         }],
     }, ensure_ascii=False).encode("utf-8")
 

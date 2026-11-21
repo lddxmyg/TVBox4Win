@@ -79,6 +79,7 @@ class DetailActivity : AppCompatActivity() {
             return
         }
         playSource = bean
+        vodId = id   // 聚合后用的是真实条目 id，播放上下文要用它
         val src = bean
         Thread {
             val d = try { SourceApi.getDetail(src, id) } catch (e: Exception) { DetailInfo() }
@@ -228,6 +229,14 @@ class DetailActivity : AppCompatActivity() {
             t.setOnClickListener { lineIndex = i; renderLines(bottom, d) }
             lineRow.addView(t)
         }
+        // 常驻换源入口（任何条目都能换到其他源播）
+        val sw = TextView(this)
+        sw.text = "换源"
+        sw.setPadding(dp(14), dp(8), dp(14), dp(8))
+        sw.setTextColor(resources.getColor(R.color.textSecondary, theme))
+        sw.textSize = 13f
+        sw.setOnClickListener { renderAggregateSearch(bodyView, bottom) }
+        lineRow.addView(sw)
         bottom.addView(lineRow)
 
         val grid = GridLayout(this)
@@ -248,16 +257,26 @@ class DetailActivity : AppCompatActivity() {
             p.setMargins(dp(3), dp(3), dp(3), dp(3))
             t.layoutParams = p
             t.setOnClickListener {
+                // 写入播放上下文：播放页据此渲染选集面板/自动下一集/换源
+                State.playDetail = d
+                State.playSource = playSource ?: State.homeSource
+                State.playVodId = vodId
+                State.playVodName = vodName.ifBlank { d.name }
+                State.playLineIndex = lineIndex
                 val it = Intent(this, PlayActivity::class.java)
+                it.putExtra("use_detail", true)
                 it.putExtra("ep_url", urls[i])
                 it.putExtra("ep_name", t.text)
                 it.putExtra("line_flag", d.seriesFlags.getOrNull(lineIndex)?.first ?: "")
                 it.putExtra("source_key", playSource?.key ?: "")
+                it.putExtra("vod_name", vodName.ifBlank { d.name })
                 startActivity(it)
             }
             grid.addView(t)
         }
-        bottom.addView(grid)
+        val gs = android.widget.ScrollView(this)
+        gs.addView(grid)
+        bottom.addView(gs)
     }
 
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
