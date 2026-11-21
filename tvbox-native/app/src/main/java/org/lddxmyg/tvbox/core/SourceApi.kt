@@ -89,6 +89,56 @@ object SourceApi {
         return vodsOf(j)
     }
 
+    /** 可搜索的源（复刻原版：searchable=1 且 api 非空） */
+    fun searchableSources(): List<SourceBean> =
+        ApiConfig.sourceBeanList.filter { it.searchable == 1 && it.api.isNotEmpty() }
+
+    /**
+     * 全源流式搜索（复刻原版 TVBox 搜索页行为）：
+     * 所有可搜索源并发开搜，每搜完一个源就回调一次，UI 边搜边出结果。
+     * 返回取消函数（搜索页再次搜索/退出时调用）。
+     */
+    fun searchAllStream(
+        wd: String,
+        onSource: (SourceBean, List<Vod>, Int, Int) -> Unit,
+        onDone: (Int) -> Unit
+    ): () -> Unit {
+        val sources = searchableSources()
+        val total = sources.size
+        if (total == 0) { onDone(0); return {} }
+        val done = java.util.concurrent.atomic.AtomicInteger(0)
+        val cancelled = java.util.concurrent.atomic.AtomicBoolean(false)
+        val finished = java.util.concurrent.atomic.AtomicBoolean(false)
+        val pool = java.util.concurrent.Executors.newFixedThreadPool(minOf(total, 8))
+        for (b in sources) {
+            pool.execute {
+                if (cancelled.get()) return@execute
+                val list = try { searchVods(b, wd) } catch (_: Throwable) { emptyList() }
+                if (cancelled.get()) return@execute
+                val d = done.incrementAndGet()
+                try { onSource(b, list, d, total) } catch (_: Throwable) {}
+                if (d >= total && finished.compareAndSet(false, true)) onDone(total)
+            }
+        }
+        pool.shutdown()
+        // 看门狗：加固源可能长时间挂死，90 秒后强制收尾，避免一直显示"搜索中"
+        val watchdog = Thread {
+            try { Thread.sleep(90_000) } catch (_: InterruptedException) { return@Thread }
+            if (done.get() < total && finished.compareAndSet(false, true)) {
+                cancelled.set(true)
+                pool.shutdownNow()
+                onDone(done.get())
+            }
+        }
+        watchdog.isDaemon = true
+        watchdog.start()
+        return {
+            cancelled.set(true)
+            pool.shutdownNow()
+            watchdog.interrupt()
+        }
+    }
+
     /**
      * 全源聚合搜索（复刻原版 msearch: 链路）：
      * Douban/DouDou 这类"仅推荐"源的 vod_id 是 msearch: 前缀、无 detailContent，

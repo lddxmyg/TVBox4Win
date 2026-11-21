@@ -27,6 +27,7 @@ class DetailActivity : AppCompatActivity() {
     private var detail: DetailInfo? = null
     // msearch 聚合后选中的真实播放源；普通源为 null（用 State.homeSource）
     private var playSource: SourceBean? = null
+    private lateinit var bodyView: LinearLayout
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -43,6 +44,7 @@ class DetailActivity : AppCompatActivity() {
         val scroll = android.widget.ScrollView(this)
         val body = LinearLayout(this)
         body.orientation = LinearLayout.VERTICAL
+        bodyView = body
         scroll.addView(body)
         root.addView(scroll, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
@@ -61,7 +63,11 @@ class DetailActivity : AppCompatActivity() {
             renderAggregateSearch(body, bottom)
         } else {
             setLoadingView(body)
-            loadDetail(State.homeSource, vodId, body, bottom)
+            // 搜索结果会带 source_key：必须用产出该条目的源加载详情（此前一律用 homeSource，导致打不开）
+            val srcKey = intent.getStringExtra("source_key").orEmpty()
+            val src = if (srcKey.isNotEmpty()) ApiConfig.get(srcKey) ?: State.homeSource
+                      else State.homeSource
+            loadDetail(src, vodId, body, bottom)
         }
     }
 
@@ -195,9 +201,19 @@ class DetailActivity : AppCompatActivity() {
         bottom.removeAllViews()
         if (d.seriesFlags.isEmpty()) {
             val t = TextView(this)
-            t.text = "没有可播放的选集"
+            t.text = "该源没有可播放地址"
             t.setTextColor(resources.getColor(R.color.textSecondary, theme))
             bottom.addView(t)
+            // 兜底：换源播放（此前这里只有一行死文案，用户无路可走）
+            if (vodName.isNotBlank()) {
+                val btn = TextView(this)
+                btn.text = "搜索其他源播放"
+                btn.setTextColor(resources.getColor(R.color.accent, theme))
+                btn.textSize = 14f
+                btn.setPadding(0, dp(10), 0, dp(10))
+                btn.setOnClickListener { renderAggregateSearch(bodyView, bottom) }
+                bottom.addView(btn)
+            }
             return
         }
         val lineRow = LinearLayout(this)

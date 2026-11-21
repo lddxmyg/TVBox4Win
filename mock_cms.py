@@ -38,6 +38,29 @@ VIDEOS = {
     },
 }
 
+# 多源并发搜索测试：另外两个 JSON(type=1) CMS 源，同名不同线路；其中一个故意慢 4 秒
+JSON_SOURCES = {
+    "/cms2.php": {"vid": "101", "name": "今天是太阳雨", "pic": "http://127.0.0.1:8000/pic2.png",
+                  "remark": "HD中字", "flag": "线路B", "delay": 0},
+    "/cms3.php": {"vid": "201", "name": "今天是太阳雨", "pic": "http://127.0.0.1:8000/pic1.png",
+                  "remark": "抢先版", "flag": "线路C", "delay": 4},
+}
+
+
+def json_list(src):
+    import json as _json
+    return _json.dumps({
+        "code": 1, "msg": "数据列表", "page": 1, "pagecount": 1, "limit": "20", "total": 1,
+        "list": [{
+            "vod_id": src["vid"], "vod_name": src["name"], "vod_pic": src["pic"],
+            "vod_remarks": src["remark"], "vod_lang": "国语", "vod_area": "大陆",
+            "vod_year": "2026", "vod_director": "JSON导演", "vod_actor": "JSON演员",
+            "vod_content": "JSON 源简介",
+            "vod_play_from": src["flag"],
+            "vod_play_url": "第01集$http://127.0.0.1:8000/video.mp4",
+        }],
+    }, ensure_ascii=False).encode("utf-8")
+
 def xml_video(v, vid):
     dds = "".join('<dd flag="%s">%s</dd>' % (f, u) for f, u in v["dd"])
     return ("<video><id>%s</id><name>%s</name><pic>%s</pic>"
@@ -62,7 +85,15 @@ class H(BaseHTTPRequestHandler):
         path = unquote(p.path)
         if path == "/test.json":
             body = ('{"sites":[{"key":"mockcms","name":"测试CMS","type":0,"api":"http://127.0.0.1:8000/cms.php","searchable":1},'
+                    '{"key":"mockjson","name":"测试CMS-JSON","type":1,"api":"http://127.0.0.1:8000/cms2.php","searchable":1},'
+                    '{"key":"mockslow","name":"测试慢源","type":1,"api":"http://127.0.0.1:8000/cms3.php","searchable":1},'
                     '{"key":"douban_test","name":"豆瓣推荐","type":3,"api":"csp_Douban","searchable":0,"quickSearch":0,"filterable":0,"jar":"http://127.0.0.1:8000/custom_spider.jar"}]}').encode("utf-8")
+        elif path in JSON_SOURCES:
+            src = JSON_SOURCES[path]
+            if src["delay"]:
+                import time as _t
+                _t.sleep(src["delay"])
+            body = json_list(src)
         elif path == "/custom_spider.jar":
             with open(os.path.join(ROOT, "custom_spider.jar"), "rb") as f:
                 body = f.read()
